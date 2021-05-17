@@ -15,6 +15,7 @@ import org.apache.commons.lang3.exception.ExceptionUtils
 import spray.json.{JsValue, JsonFormat, JsonReader, JsonWriter, RootJsonFormat, RootJsonReader, RootJsonWriter}
 
 import scala.collection.{immutable, mutable}
+import scala.collection.compat._
 import scala.concurrent.duration._
 import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.reflect.ClassTag
@@ -285,7 +286,7 @@ package object tricks {
         FiniteDuration(n.length, n.unit)
       }
 
-    val fibonacci: LazyList[FiniteDuration] = 0.seconds #:: 1.seconds #:: (fibonacci zip fibonacci.tail).map { t => t._1 + t._2 }
+    val fibonacci: Stream[FiniteDuration] = 0.seconds #:: 1.seconds #:: (fibonacci zip fibonacci.tail).map { t => t._1 + t._2 }
   }
 
   implicit class RootJsonFormatExt[A: ClassTag](val codec: RootJsonFormat[A]) {
