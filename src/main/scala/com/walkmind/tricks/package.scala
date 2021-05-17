@@ -7,7 +7,9 @@ import java.util.Comparator
 
 import akka.actor.Scheduler
 import cats.implicits._
-import cats.effect.{Clock, ContextShift, IO, Sync, Timer}
+import cats.effect.unsafe.IORuntime
+//import cats.effect.unsafe.implicits.global
+import cats.effect.{Clock, IO, Sync, Temporal}
 import com.typesafe.scalalogging.Logger
 import org.apache.commons.lang3.exception.ExceptionUtils
 import spray.json.{JsValue, JsonFormat, JsonReader, JsonWriter, RootJsonFormat, RootJsonReader, RootJsonWriter}
@@ -139,11 +141,11 @@ package object tricks {
   }
 
   implicit class Pairs[A, B](p: Iterable[(A, B)]) {
-    def toMultiMap: Map[A, List[B]] = p.groupBy(_._1).mapValues(_.map(_._2).toList).toMap
+    def toMultiMap: Map[A, List[B]] = p.groupBy(_._1).view.mapValues(_.map(_._2).toList).toMap
   }
 
   implicit class IterableExt[+T](val items: scala.collection.Iterable[T]) {
-    import scala.collection.JavaConverters._
+    import scala.jdk.CollectionConverters._
 
     @inline
     private def convOrderingToComparator[K](keyOrdering: Ordering[K]): Comparator[K] =
@@ -279,11 +281,11 @@ package object tricks {
 
     def withJitter(delays: Seq[FiniteDuration], maxJitter: Double, minJitter: Double): Seq[FiniteDuration] =
       delays.map { v =>
-        val n = v * (minJitter + (maxJitter - minJitter) * Random.nextDouble)
+        val n = v * (minJitter + (maxJitter - minJitter) * Random.nextDouble())
         FiniteDuration(n.length, n.unit)
       }
 
-    val fibonacci: Stream[FiniteDuration] = 0.seconds #:: 1.seconds #:: (fibonacci zip fibonacci.tail).map { t => t._1 + t._2 }
+    val fibonacci: LazyList[FiniteDuration] = 0.seconds #:: 1.seconds #:: (fibonacci zip fibonacci.tail).map { t => t._1 + t._2 }
   }
 
   implicit class RootJsonFormatExt[A: ClassTag](val codec: RootJsonFormat[A]) {
@@ -372,7 +374,7 @@ package object tricks {
     if (cause != null) cause.getMessage else "[null]"
   }
 
-  def timeoutTo[A](fa: IO[A], after: FiniteDuration, fallback: IO[A])(implicit timer: Timer[IO], contextShift: ContextShift[IO]): IO[A] =
+  def timeoutTo[A](fa: IO[A], after: FiniteDuration, fallback: IO[A])(implicit timer: Temporal[IO]): IO[A] =
     IO.race(fa, timer.sleep(after)).flatMap {
       case Left(a) => IO.pure(a)
       case Right(_) => fallback
@@ -380,13 +382,13 @@ package object tricks {
 
   def measure[F[_], A](fa: F[A])(implicit F: Sync[F], clock: Clock[F]): F[(A, Long)] =
     for {
-      start  <- clock.monotonic(MILLISECONDS)
+      start  <- clock.monotonic
       result <- fa
-      finish <- clock.monotonic(MILLISECONDS)
-    } yield (result, finish - start)
+      finish <- clock.monotonic
+    } yield (result, finish.toMillis - start.toMillis)
 
   // Lazily wraps scala Future. It allows us wrap bunch of Future-s but execute them later sequentially or in parallel.
   @inline
-  def toIO[T](body: => Future[T])(implicit cs: ContextShift[IO]): IO[T] =
+  def toIO[T](body: => Future[T])(implicit ioruntime: IORuntime): IO[T] =
     IO.fromFuture(IO.delay(body))
 }
